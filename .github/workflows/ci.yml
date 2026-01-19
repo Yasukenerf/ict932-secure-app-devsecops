@@ -24,7 +24,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        working-directory: src
+        working-directory: src/backend
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -34,66 +34,65 @@ jobs:
         run: mkdir -p security-results
 
       # -----------------------
-      # SAST (Bandit)
+      # SAST (Bandit) - FIXED PATH
       # -----------------------
       - name: SAST (Bandit)
         run: |
-          bandit -r src -f txt -o security-results/bandit-report.txt || true
+          bandit -r src/backend/app -f txt -o security-results/bandit-report.txt || true
           tail -n 50 security-results/bandit-report.txt || true
 
       # -----------------------
-      # Dependency scan
+      # Dependency scan (pip-audit) - FIXED OUTPUT
       # -----------------------
       - name: Dependency scan (pip-audit)
         run: |
-          pip-audit -r src/requirements.txt | tee security-results/pip-audit.txt
+          pip-audit -r src/backend/requirements.txt | tee security-results/pip-audit.txt
           tail -n 50 security-results/pip-audit.txt || true
 
       # -----------------------
-      # Unit tests
+      # Unit tests (pytest)
       # -----------------------
-      - name: Unit tests
-        working-directory: src
+      - name: Unit tests (pytest)
+        working-directory: src/backend
         run: |
           pytest -q
 
       # -----------------------
-      # Run app (background)
+      # Run app (background) for ZAP
       # -----------------------
       - name: Run app (background)
-        working-directory: src
+        working-directory: src/backend
         env:
           SECRET_KEY: "ci-test-secret"
         run: |
-          nohup python server.py > ../security-results/app.log 2>&1 &
-          echo $! > ../security-results/app.pid
+          nohup python server.py > ../../security-results/app.log 2>&1 &
+          echo $! > ../../security-results/app.pid
 
       - name: Wait for app to be ready
         run: |
           TARGET="http://127.0.0.1:5000"
+          echo "Waiting for $TARGET..."
           for i in {1..30}; do
             if curl -fsS "$TARGET" >/dev/null; then
-              echo "App is running"
+              echo "App is up!"
               exit 0
             fi
             sleep 2
           done
+          echo "App failed to start. Logs:"
           cat security-results/app.log || true
           exit 1
 
       # -----------------------
-      # DAST (OWASP ZAP)
+      # DAST (OWASP ZAP Baseline)
       # -----------------------
-      - name: DAST (OWASP ZAP Baseline)
+      - name: DAST (OWASP ZAP Baseline - Docker)
         run: |
           docker run --rm --network host \
             -v "$PWD/security-results:/zap/wrk/:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py -t http://127.0.0.1:5000 -r zap-report.html || true
 
-      # -----------------------
-      # Stop app
-      # -----------------------
       - name: Stop app
         if: always()
         run: |
@@ -101,9 +100,9 @@ jobs:
             kill $(cat security-results/app.pid) || true
           fi
 
-      # -----------------------
-      # Upload artifacts
-      # -----------------------
       - name: Upload security artifacts
         if: always()
-        uses: acti
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-results
+          path: security-results
