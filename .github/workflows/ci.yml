@@ -4,7 +4,6 @@ on:
   push:
   pull_request:
 
-# Explicit permissions to avoid GitHub Actions restrictions
 permissions:
   contents: read
   actions: read
@@ -18,7 +17,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Fix for /usr/bin/git exit code 128 (unsafe/dubious ownership)
       - name: Mark workspace as safe for git
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -31,21 +29,20 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r src/requirements.txt
+          pip install -r requirements.txt
           pip install pytest bandit pip-audit
 
       - name: Prepare security results folder
         run: |
           mkdir -p docs/security-results
 
-      # Non-blocking scans (good DevSecOps practice: report findings, don't break build)
       - name: SAST (Bandit)
         run: |
-          bandit -r src/app -lll -f txt -o docs/security-results/bandit-report.txt || true
+          bandit -r src -lll -f txt -o docs/security-results/bandit-report.txt || true
 
       - name: Dependency scan (pip-audit)
         run: |
-          pip-audit -r src/requirements.txt | tee docs/security-results/pip-audit.txt || true
+          pip-audit -r requirements.txt | tee docs/security-results/pip-audit.txt || true
 
       - name: Unit tests
         run: |
@@ -65,7 +62,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload security artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-results
-          path: docs/security-results
