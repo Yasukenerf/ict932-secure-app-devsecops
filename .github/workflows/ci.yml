@@ -46,15 +46,20 @@ jobs:
         run: |
           pytest -q || true
 
+      # IMPORTANT: bind to 0.0.0.0 so Docker/ZAP can reach it
       - name: Run app (background)
         run: |
-          python src/server.py &
-          sleep 5
+          export FLASK_ENV=production
+          python src/server.py --host 0.0.0.0 --port 5000 &
+          sleep 8
+          # quick sanity check from the runner:
+          curl -I http://127.0.0.1:5000 || true
 
+      # IMPORTANT: use host.docker.internal so ZAP container can reach runner service
       - name: DAST (OWASP ZAP Baseline)
         uses: zaproxy/action-baseline@v0.12.0
         with:
-          target: "http://127.0.0.1:5000"
+          target: "http://host.docker.internal:5000"
           fail_action: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
