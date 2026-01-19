@@ -4,6 +4,7 @@ on:
   push:
   pull_request:
 
+# Explicit permissions to avoid GitHub Actions restrictions
 permissions:
   contents: read
   actions: read
@@ -16,6 +17,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Fix for /usr/bin/git exit code 128 (unsafe/dubious ownership)
+      - name: Mark workspace as safe for git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,6 +38,7 @@ jobs:
         run: |
           mkdir -p docs/security-results
 
+      # Non-blocking scans (good DevSecOps practice: report findings, don't break build)
       - name: SAST (Bandit)
         run: |
           bandit -r src/app -lll -f txt -o docs/security-results/bandit-report.txt || true
