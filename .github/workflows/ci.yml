@@ -24,11 +24,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        working-directory: src/backend
+        working-directory: src
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # Tools used in CI (install here if not already in requirements.txt)
           pip install bandit pip-audit pytest
 
       - name: Prepare security results folder
@@ -39,80 +38,58 @@ jobs:
       # -----------------------
       - name: SAST (Bandit)
         run: |
-          # IMPORTANT: point Bandit at the folder that actually contains .py files
-          bandit -r src/backend -f txt -o security-results/bandit-report.txt || true
-          echo "---- Bandit summary ----"
+          bandit -r src -f txt -o security-results/bandit-report.txt || true
           tail -n 50 security-results/bandit-report.txt || true
 
       # -----------------------
-      # Dependency scan (pip-audit)
+      # Dependency scan
       # -----------------------
       - name: Dependency scan (pip-audit)
         run: |
-          # Scan requirements.txt and save output
-          pip-audit -r src/backend/requirements.txt | tee security-results/pip-audit.txt
-          echo "---- pip-audit summary ----"
+          pip-audit -r src/requirements.txt | tee security-results/pip-audit.txt
           tail -n 50 security-results/pip-audit.txt || true
 
       # -----------------------
       # Unit tests
       # -----------------------
-      - name: Unit tests (pytest)
-        working-directory: src/backend
+      - name: Unit tests
+        working-directory: src
         run: |
           pytest -q
 
       # -----------------------
-      # Run app (background) so ZAP can scan it
+      # Run app (background)
       # -----------------------
       - name: Run app (background)
-        working-directory: src/backend
+        working-directory: src
         env:
-          # Use test-friendly env vars here (no real secrets)
-          SECRET_KEY: "ci-test-secret-key"
-          FLASK_ENV: "testing"
+          SECRET_KEY: "ci-test-secret"
         run: |
-          # ✅ CHANGE THIS if your start command is different
-          # Example alternatives:
-          #   python app.py
-          #   flask --app server run --host 0.0.0.0 --port 5000
-          nohup python server.py > ../../security-results/app.log 2>&1 &
-          echo $! > ../../security-results/app.pid
+          nohup python server.py > ../security-results/app.log 2>&1 &
+          echo $! > ../security-results/app.pid
 
       - name: Wait for app to be ready
         run: |
-          # ✅ CHANGE TARGET if your app uses a different port/path
           TARGET="http://127.0.0.1:5000"
-          echo "Waiting for $TARGET ..."
           for i in {1..30}; do
             if curl -fsS "$TARGET" >/dev/null; then
-              echo "App is up!"
+              echo "App is running"
               exit 0
             fi
             sleep 2
           done
-          echo "App failed to start. Dumping logs:"
           cat security-results/app.log || true
           exit 1
 
       # -----------------------
-      # DAST (OWASP ZAP Baseline) - Docker
+      # DAST (OWASP ZAP)
       # -----------------------
-      - name: DAST (OWASP ZAP Baseline - Docker)
+      - name: DAST (OWASP ZAP Baseline)
         run: |
-          TARGET="http://127.0.0.1:5000"
-          echo "Running ZAP baseline against $TARGET"
           docker run --rm --network host \
             -v "$PWD/security-results:/zap/wrk/:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t "$TARGET" -r zap-report.html || true
-
-          # Also keep a text log for quick review
-          if [ -f security-results/zap-report.html ]; then
-            echo "ZAP report created: security-results/zap-report.html"
-          else
-            echo "ZAP report not found. Check docker logs above."
-          fi
+            zap-baseline.py -t http://127.0.0.1:5000 -r zap-report.html || true
 
       # -----------------------
       # Stop app
@@ -121,17 +98,12 @@ jobs:
         if: always()
         run: |
           if [ -f security-results/app.pid ]; then
-            PID=$(cat security-results/app.pid)
-            echo "Stopping app PID=$PID"
-            kill "$PID" || true
+            kill $(cat security-results/app.pid) || true
           fi
 
       # -----------------------
-      # Upload artifacts (evidence)
+      # Upload artifacts
       # -----------------------
       - name: Upload security artifacts
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-results
-          path: security-results
+        uses: acti
