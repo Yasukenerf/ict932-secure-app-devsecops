@@ -7,7 +7,6 @@ on:
 permissions:
   contents: read
   actions: read
-  security-events: write
 
 jobs:
   backend:
@@ -46,23 +45,29 @@ jobs:
         run: |
           pytest -q || true
 
-      # IMPORTANT: bind to 0.0.0.0 so Docker/ZAP can reach it
+      # Start web app and bind to all interfaces so Docker containers can reach it
       - name: Run app (background)
         run: |
           export FLASK_ENV=production
-          python src/server.py --host 0.0.0.0 --port 5000 &
+          python src/server.py &
           sleep 8
-          # quick sanity check from the runner:
           curl -I http://127.0.0.1:5000 || true
 
-      # IMPORTANT: use host.docker.internal so ZAP container can reach runner service
-      - name: DAST (OWASP ZAP Baseline)
-        uses: zaproxy/action-baseline@v0.12.0
-        with:
-          target: "http://host.docker.internal:5000"
-          fail_action: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # DAST without the GitHub Action (avoids zap.yaml permission issue)
+      - name: DAST (OWASP ZAP Baseline - Docker)
+        run: |
+          mkdir -p docs/security-results
+
+          # Docker gateway IP (how containers reach the runner host)
+          HOST_IP=$(ip route | awk '/default/ {print $3}')
+          echo "Host IP for containers: $HOST_IP"
+
+          # Run ZAP baseline scan against the running app
+          docker run --rm --network host \
+            -v "$(pwd)/docs/security-results:/zap/wrk" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t "http://127.0.0.1:5000" \
+            -r zap-report.html -J zap-report.json -w zap-report.md || true
 
       - name: Upload security artifacts
         uses: actions/upload-artifact@v4
